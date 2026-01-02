@@ -85,11 +85,6 @@ Features:
 * **range selection**: click token A (start), click token B (end)
 * “Top tokens by average entropy” for (a) the full run and (b) your selection
 
-## Vendored code
-
-`vendor/gpt-oss-probs-main/` contains the original `llama_topk_mass.py` and plotting script from your `gpt-oss-probs-main` zip.
-This repo doesn’t depend on that code at runtime, but it’s kept nearby for reference and reuse.
-
 ## File format (log JSON)
 
 The generator writes a single JSON file:
@@ -107,10 +102,7 @@ The generator writes a single JSON file:
 }
 ```
 
-## License
-
-This repo is intended as a glue/tooling scaffold. Check `vendor/gpt-oss-probs-main/LICENSE` for the vendored code’s license.
-## llama.cpp server mode (reuses patterns from gpt-oss-probs-main)
+## llama.cpp server mode
 
 If you’re running `gpt-oss-20b` behind a llama.cpp server, you can log an **entropy lower bound**
 computed from the returned top-k probabilities (because the full softmax over the entire vocab is not available).
