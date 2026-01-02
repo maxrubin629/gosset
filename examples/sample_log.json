@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "backend": "sample",
+  "model_id": "sample-model",
+  "created_at": "2026-01-02T21:39:40Z",
+  "prompt": "sample",
+  "decode": {
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 1.0,
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+    "max_new_tokens": 13,
+    "seed": 0
+  },
+  "timing": {
+    "seconds": 0.0,
+    "tokens_per_second": null
+  },
+  "steps": [
+    {
+      "index": 0,
+      "token_id": 1000,
+      "token": "Hello",
+      "entropy_nats": 1.9051846644423218,
+      "entropy_bits": 2.7486004673686417
+    },
+    {
+      "index": 1,
+      "token_id": 1001,
+      "token": " ",
+      "entropy_nats": 4.093757657890698,
+      "entropy_bits": 5.906043871640128
+    },
+    {
+      "index": 2,
+      "token_id": 1002,
+      "token": "world",
+      "entropy_nats": 4.158423272847001,
+      "entropy_bits": 5.999336633653622
+    },
+    {
+      "index": 3,
+      "token_id": 1003,
+      "token": "!",
+      "entropy_nats": 0.45767301496083057,
+      "entropy_bits": 0.6602825890326907
+    },
+    {
+      "index": 4,
+      "token_id": 1004,
+      "token": "\n",
+      "entropy_nats": 0.6286334536641188,
+      "entropy_bits": 0.9069263661381262
+    },
+    {
+      "index": 5,
+      "token_id": 1005,
+      "token": "This",
+      "entropy_nats": 0.2388866555517294,
+      "entropy_bits": 0.34464059329902996
+    },
+    {
+      "index": 6,
+      "token_id": 1006,
+      "token": " ",
+      "entropy_nats": 1.6457303814794322,
+      "entropy_bits": 2.374287060000679
+    },
+    {
+      "index": 7,
+      "token_id": 1007,
+      "token": "is",
+      "entropy_nats": 0.7070412794885318,
+      "entropy_bits": 1.0200449476218925
+    },
+    {
+      "index": 8,
+      "token_id": 1008,
+      "token": " ",
+      "entropy_nats": 3.448338810452306,
+      "entropy_bits": 4.974901301144489
+    },
+    {
+      "index": 9,
+      "token_id": 1009,
+      "token": "a",
+      "entropy_nats": 3.083992944363627,
+      "entropy_bits": 4.449261326969958
+    },
+    {
+      "index": 10,
+      "token_id": 1010,
+      "token": " ",
+      "entropy_nats": 2.0128060081429924,
+      "entropy_bits": 2.9038652462194054
+    },
+    {
+      "index": 11,
+      "token_id": 1011,
+      "token": "sample",
+      "entropy_nats": 1.6471820722109434,
+      "entropy_bits": 2.3763814070199345
+    },
+    {
+      "index": 12,
+      "token_id": 1012,
+      "token": ".",
+      "entropy_nats": 0.16716043083963353,
+      "entropy_bits": 0.24116152460520182
+    }
+  ],
+  "response_text": "Hello world!\nThis is a sample."
+}

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gpt-oss entropy viewer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="title">gpt-oss entropy viewer</div>
+    <div class="controls">
+      <input id="file" type="file" accept=".json,application/json" />
+      <button id="clearSelection" disabled>Clear selection</button>
+      <label class="inline">
+        Unit
+        <select id="unit">
+          <option value="bits" selected>bits</option>
+          <option value="nats">nats</option>
+        </select>
+      </label>
+      <label class="inline">
+        Deadzone
+        <input id="deadzone" type="range" min="0" max="0.5" step="0.01" value="0.12" />
+        <span id="deadzoneVal">0.12</span>
+      </label>
+      <label class="inline">
+        Gamma
+        <input id="gamma" type="range" min="0.3" max="3.0" step="0.05" value="1.0" />
+        <span id="gammaVal">1.00</span>
+      </label>
+      <label class="inline">
+        Min count
+        <input id="minCount" type="number" min="1" step="1" value="5" />
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <section class="pane left">
+      <div class="meta" id="meta"></div>
+
+      <div class="stats">
+        <div class="stats-title">Selection</div>
+        <div id="selectionStats" class="mono subtle">Click two tokens to select a range.</div>
+      </div>
+
+      <div class="stats">
+        <div class="stats-title">Top tokens by average entropy (selection)</div>
+        <div id="topTokensSelection" class="table"></div>
+      </div>
+
+      <div class="stats">
+        <div class="stats-title">Top tokens by average entropy (full run)</div>
+        <div id="topTokensFull" class="table"></div>
+      </div>
+    </section>
+
+    <section class="pane right">
+      <div class="hint">
+        Token highlighting: greener = lower entropy, redder = higher entropy, transparent = middle band.
+        Selection: first click sets start, second click sets end.
+      </div>
+      <div id="tokenStream" class="token-stream"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
