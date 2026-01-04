@@ -19,6 +19,10 @@ let steps = [];
 let selStart = null;
 let selEnd = null;
 
+function isFiniteNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
 function escapeHtml(s) {
   return s.replaceAll('&', '&amp;')
           .replaceAll('<', '&lt;')
@@ -51,6 +55,7 @@ function percentile(sorted, p) {
 
 function computeColorMapParams(values) {
   const v = [...values].sort((a,b)=>a-b);
+  if (!v.length) return { mid: 0, halfRange: 1 };
   const mid = percentile(v, 50);
   const p10 = percentile(v, 10);
   const p90 = percentile(v, 90);
@@ -63,6 +68,7 @@ function entropyValue(step) {
 }
 
 function colorFor(value, params) {
+  if (!isFiniteNumber(value)) return 'transparent';
   const deadzone = parseFloat(els.deadzone.value);
   const gamma = parseFloat(els.gamma.value);
 
@@ -129,6 +135,7 @@ function topTokens(stepsSlice, minCount, topN=30) {
   for (const s of stepsSlice) {
     const tok = s.token;
     const v = entropyValue(s);
+    if (!isFiniteNumber(v)) continue;
     let agg = map.get(tok);
     if (!agg) {
       agg = { token: tok, count: 0, sum: 0 };
@@ -160,13 +167,19 @@ function renderSelectionStats() {
     els.topTokensSelection.innerHTML = '';
     return;
   }
-  const vals = slice.map(entropyValue).sort((a,b)=>a-b);
+  const vals = slice.map(entropyValue).filter(isFiniteNumber).sort((a,b)=>a-b);
+  const unit = els.unit.value;
+  if (!vals.length) {
+    els.selectionStats.textContent =
+      `range: [${Math.min(selStart, selEnd)}..${Math.max(selStart, selEnd)}] • tokens: ${slice.length} • entropy: unavailable`;
+    els.topTokensSelection.innerHTML = '';
+    return;
+  }
   const mean = vals.reduce((x,y)=>x+y,0) / vals.length;
   const p50 = percentile(vals, 50);
   const p90 = percentile(vals, 90);
-  const unit = els.unit.value;
   els.selectionStats.textContent =
-    `range: [${Math.min(selStart, selEnd)}..${Math.max(selStart, selEnd)}] • tokens: ${slice.length} • mean: ${mean.toFixed(3)} ${unit} • p50: ${p50.toFixed(3)} • p90: ${p90.toFixed(3)}`;
+    `range: [${Math.min(selStart, selEnd)}..${Math.max(selStart, selEnd)}] • tokens: ${slice.length} • entropy samples: ${vals.length} • mean: ${mean.toFixed(3)} ${unit} • p50: ${p50.toFixed(3)} • p90: ${p90.toFixed(3)}`;
 
   const minCount = parseInt(els.minCount.value || '5', 10);
   const top = topTokens(slice, minCount, 30);
@@ -195,7 +208,7 @@ function renderStream() {
   els.tokenStream.innerHTML = '';
   if (!steps.length) return;
 
-  const vals = steps.map(entropyValue);
+  const vals = steps.map(entropyValue).filter(isFiniteNumber);
   const params = computeColorMapParams(vals);
 
   const frag = document.createDocumentFragment();
@@ -206,7 +219,8 @@ function renderStream() {
     span.textContent = s.token;
     const v = entropyValue(s);
     span.style.background = colorFor(v, params);
-    span.title = `t=${s.index} • id=${s.token_id} • H=${v.toFixed(3)} ${els.unit.value}`;
+    const h = isFiniteNumber(v) ? v.toFixed(3) : 'NA';
+    span.title = `t=${s.index} • id=${s.token_id} • H=${h} ${els.unit.value}`;
 
     span.addEventListener('click', () => {
       const idx = parseInt(span.dataset.idx, 10);
