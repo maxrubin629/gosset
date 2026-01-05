@@ -19,3 +19,4 @@ Thumbs.db
 # Node (if you add a build step later)
 node_modules/
 dist/
+*.pyc
