@@ -20,4 +20,4 @@ There is no automated test suite or coverage requirement yet. If you add tests, 
 Git history only shows simple, sentence-style subjects (e.g., "Initial commit: ..."), so keep commit titles short and descriptive. PRs should state intent, list key commands run (or explain if none), and include a screenshot or short clip for viewer changes. If the log schema changes, call it out and update `examples/` accordingly.
 
 ## Configuration & Data Notes
-Python 3.10+ is recommended. Model weights are fetched by `transformers` at runtime; avoid committing large generated logs.
+Python 3.10+ is recommended. If you use mamba/conda, the local env name is `gpt-oss-scope`. Model weights are fetched by `transformers` at runtime; avoid committing large generated logs.

@@ -14,13 +14,32 @@ TokenProb = Tuple[str, float]  # (token, logprob)
 
 
 def sse_events(resp: requests.Response) -> Iterator[Dict]:
-    """Yield JSON dicts from a text/event-stream ('data: {json}') response."""
-    for raw in resp.iter_lines(decode_unicode=True):
+    """Yield JSON dicts from a text/event-stream ("data: {json}") response.
+
+    NOTE: llama.cpp's SSE responses are UTF-8 JSON, but the server may omit an explicit
+    `charset=utf-8`. If we let `requests` guess the encoding (via `decode_unicode=True`),
+    it can default to latin-1 and produce mojibake (e.g. "🦉" -> "ð¦").
+
+    We therefore decode lines explicitly as UTF-8.
+    """
+    for raw in resp.iter_lines(decode_unicode=False):
         if not raw:
             continue
-        if not raw.startswith("data:"):
+
+        # `iter_lines(decode_unicode=False)` yields bytes. Decode explicitly to avoid
+        # requests' charset detection.
+        if isinstance(raw, (bytes, bytearray)):
+            try:
+                line = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                # Be robust to any malformed bytes; better to keep going than to crash.
+                line = raw.decode("utf-8", errors="replace")
+        else:
+            line = str(raw)
+
+        if not line.startswith("data:"):
             continue
-        data = raw[5:].strip()
+        data = line[5:].strip()
         if not data or data == "[DONE]":
             continue
         try:
@@ -238,8 +257,31 @@ def generate_with_entropy_lower_bound(
         extractor = extract_top_candidates_from_completion_event
 
     idx = 0
+    # Some llama.cpp servers return cumulative `logprobs.content` in each SSE chunk for the
+    # OpenAI-compatible chat endpoint (i.e., all tokens so far, not just the new delta).
+    # If we naively log every entry in every chunk, the output becomes duplicated/garbled.
+    #
+    # We keep a prefix of already-seen tokens and, when a chunk looks cumulative, we only
+    # consume the new suffix.
+    seen_chat_tokens: List[str] = []
     for evt in events:
-        for tok, topk in extractor(evt):
+        extracted = extractor(evt)
+        if not extracted:
+            continue
+
+        if cfg.endpoint == "chat" and seen_chat_tokens:
+            # Detect cumulative chunks: the chunk's token sequence starts with what we've
+            # already logged.
+            if len(extracted) >= len(seen_chat_tokens):
+                is_prefix = True
+                for i, prev_tok in enumerate(seen_chat_tokens):
+                    if extracted[i][0] != prev_tok:
+                        is_prefix = False
+                        break
+                if is_prefix:
+                    extracted = extracted[len(seen_chat_tokens):]
+
+        for tok, topk in extracted:
             h_nats_lb, h_bits_lb, mass_obs = entropy_lower_bound_from_topk(topk)
             steps.append({
                 "index": idx,
@@ -252,6 +294,8 @@ def generate_with_entropy_lower_bound(
                 "note": "entropy is a LOWER BOUND when computed from top-k only",
             })
             text_out.append(tok)
+            if cfg.endpoint == "chat":
+                seen_chat_tokens.append(tok)
             idx += 1
 
     dt = time.time() - t0
