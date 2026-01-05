@@ -6,6 +6,8 @@ A small repo that:
 2) logs **per-step Shannon entropy** (both nats and bits) for the next-token distribution  
 3) provides a lightweight viewer that renders each generated token with a green↔red entropy heatmap and a two-click token-range selector.
 
+<img width="1128" height="831" alt="Screenshot 2026-01-05 at 7 44 36 AM" src="https://github.com/user-attachments/assets/488ac355-ee3d-4c7c-b679-7ee3808c5111" />
+
 ## What “entropy per token” means here
 
 For each generation step *t*, we compute:
