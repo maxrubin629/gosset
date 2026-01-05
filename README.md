@@ -106,10 +106,20 @@ The generator writes a single JSON file:
 }
 ```
 
+Notes for llama.cpp logs:
+* Top-level `kmax` is recorded, and `decode.seed` is always set (random if not provided).
+* Each step includes `token_id`, `is_prompt` (currently false for generated tokens), and `top_logprobs` (chosen token + up to 5 alternatives).
+
 ## llama.cpp server mode
 
 If you’re running `gpt-oss-20b` behind a llama.cpp server, you can log an **entropy lower bound**
 computed from the returned top-k probabilities (because the full softmax over the entire vocab is not available).
+
+Example server command:
+
+```bash
+llama-server -hf ggml-org/gpt-oss-20b-GGUF --ctx-size 0 --jinja -ub 2048 -b 2048
+```
 
 ```bash
 python -m gosset generate-llamacpp \

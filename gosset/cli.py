@@ -82,6 +82,7 @@ def cmd_generate_llamacpp(args: argparse.Namespace) -> None:
         model=args.model or "",
         endpoint=args.endpoint,
         kmax=args.kmax,
+        seed=args.seed,
         timeout=args.timeout,
         max_tokens=args.max_tokens,
         temperature=1.0,
@@ -150,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--system", help="Optional system prompt (chat endpoint only).")
     l.add_argument("--out", help="Output JSON path.")
     l.add_argument("--kmax", type=int, default=512, help="Top-k candidates requested from server (n_probs/top_logprobs).")
+    l.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for generation. If omitted, gosset picks a random seed and records it in the JSON log.",
+    )
     l.add_argument("--max-tokens", type=int, default=16384)
     l.add_argument("--timeout", type=float, default=600.0)
     l.set_defaults(func=cmd_generate_llamacpp)

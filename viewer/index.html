@@ -33,11 +33,20 @@
         Min count
         <input id="minCount" type="number" min="1" step="1" value="5" />
       </label>
+      <label class="inline">
+        Top N
+        <input id="topN" type="number" min="1" step="1" value="100" />
+      </label>
     </div>
   </header>
 
   <main>
     <section class="pane left">
+      <div class="stats">
+        <div class="stats-title">Prompt</div>
+        <pre id="promptText" class="prompt mono"></pre>
+      </div>
+
       <div class="meta" id="meta"></div>
 
       <div class="stats">
@@ -57,6 +66,15 @@
     </section>
 
     <section class="pane right">
+      <details class="hover-menu" id="hoverMenu">
+        <summary>Hover info (highlighted tokens)</summary>
+        <div class="hover-menu-grid">
+          <label><input id="hoverShowTokenId" type="checkbox" checked /> token_id</label>
+          <label><input id="hoverShowEntropy" type="checkbox" checked /> entropy</label>
+          <label><input id="hoverShowMass" type="checkbox" checked /> mass observed</label>
+          <label><input id="hoverShowAlternatives" type="checkbox" /> top 5 alternatives</label>
+        </div>
+      </details>
       <div class="hint">
         Token highlighting: greener = lower entropy, redder = higher entropy, transparent = middle band.
         Selection: first click sets start, second click sets end.

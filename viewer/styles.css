@@ -132,6 +132,62 @@ main {
   outline-offset: 1px;
 }
 
+/* Keep a crisp, white outline while hovering, even for selected/in-range tokens. */
+.tok:hover,
+.tok.selected:hover,
+.tok.in-range:hover {
+  outline: 2px solid rgba(255,255,255,0.92);
+  outline-offset: 1px;
+}
+
+.prompt {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #0b0d12;
+}
+
+.hover-menu {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  background: rgba(0,0,0,0.12);
+}
+
+.hover-menu summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted);
+}
+
+.hover-menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 14px;
+  margin-top: 8px;
+}
+
+.hover-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 520px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(10, 12, 18, 0.96);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.4);
+  pointer-events: none;
+}
+
 .stats {
   margin-top: 12px;
   padding-top: 10px;
