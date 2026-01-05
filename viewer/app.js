@@ -49,7 +49,7 @@ function percentile(sorted, p) {
   const k = (sorted.length - 1) * (p / 100.0);
   const f = Math.floor(k);
   const c = Math.ceil(k);
-  if (f === c) return sorted[k];
+  if (f === c) return sorted[f];
   return sorted[f] * (c - k) + sorted[c] * (k - f);
 }
 
@@ -64,7 +64,17 @@ function computeColorMapParams(values) {
 }
 
 function entropyValue(step) {
-  return els.unit.value === 'nats' ? step.entropy_nats : step.entropy_bits;
+  const nats = Number(step.entropy_nats);
+  const bits = Number(step.entropy_bits);
+  if (els.unit.value === 'nats') {
+    if (Number.isFinite(nats)) return nats;
+    if (Number.isFinite(bits)) return bits * Math.log(2);
+    return NaN;
+  }
+  // bits
+  if (Number.isFinite(bits)) return bits;
+  if (Number.isFinite(nats)) return nats / Math.log(2);
+  return NaN;
 }
 
 function colorFor(value, params) {
@@ -189,7 +199,7 @@ function renderSelectionStats() {
 function updateSelectionClasses() {
   const spans = els.tokenStream.querySelectorAll('.tok');
   spans.forEach(sp => {
-    const i = parseInt(sp.dataset.idx, 10);
+    const i = parseInt(sp.dataset.pos, 10);
     sp.classList.remove('selected', 'in-range');
     if (selStart == null) return;
     if (selEnd == null) {
@@ -212,18 +222,22 @@ function renderStream() {
   const params = computeColorMapParams(vals);
 
   const frag = document.createDocumentFragment();
-  for (const s of steps) {
+  for (let pos = 0; pos < steps.length; pos++) {
+    const s = steps[pos];
     const span = document.createElement('span');
     span.className = 'tok';
-    span.dataset.idx = String(s.index);
+    span.dataset.pos = String(pos);
     span.textContent = s.token;
     const v = entropyValue(s);
     span.style.background = colorFor(v, params);
     const h = isFiniteNumber(v) ? v.toFixed(3) : 'NA';
-    span.title = `t=${s.index} • id=${s.token_id} • H=${h} ${els.unit.value}`;
+    const t = (s.index != null) ? s.index : pos;
+    const mass = (s.mass_observed != null) ? ` • mass=${Number(s.mass_observed).toFixed(3)}` : '';
+    const note = s.note ? ` • ${String(s.note)}` : '';
+    span.title = `t=${t} • id=${s.token_id} • H=${h} ${els.unit.value}${mass}${note}`;
 
     span.addEventListener('click', () => {
-      const idx = parseInt(span.dataset.idx, 10);
+      const idx = parseInt(span.dataset.pos, 10);
       if (selStart == null || (selStart != null && selEnd != null)) {
         selStart = idx;
         selEnd = null;
@@ -269,7 +283,17 @@ els.file.addEventListener('change', async (e) => {
     token: s.token,
     entropy_bits: s.entropy_bits,
     entropy_nats: s.entropy_nats,
+    mass_observed: s.mass_observed,
+    note: s.note,
   }));
+  // Ensure order is stable even if a log writes steps out of order.
+  steps.sort((a, b) => {
+    const ai = Number(a.index);
+    const bi = Number(b.index);
+    const aKey = Number.isFinite(ai) ? ai : 0;
+    const bKey = Number.isFinite(bi) ? bi : 0;
+    return aKey - bKey;
+  });
 
   rerenderAll();
 });

@@ -95,33 +95,44 @@ def request_completion(
         yield r.json()
 
 
-def extract_top_candidates_from_chat_event(evt: Dict) -> Optional[Tuple[str, List[TokenProb]]]:
-    """Extract chosen token and its top candidates from a chat-completions streaming chunk."""
+def extract_top_candidates_from_chat_event(evt: Dict) -> List[Tuple[str, List[TokenProb]]]:
+    """Extract chosen token(s) and their top candidates from a chat-completions streaming chunk.
+
+    llama.cpp's OpenAI-compatible streaming can return multiple token logprob entries per chunk.
+    We return a list so callers can log 1 step per token.
+    """
     choices = evt.get("choices") or []
     if not choices:
-        return None
+        return []
     ch0 = choices[0]
     lp = (ch0.get("logprobs") or {}).get("content", [])
     if not lp:
-        return None
-    item = lp[0]
-    chosen_tok = item.get("token")
-    top = item.get("top_logprobs") or []
-    topk: List[TokenProb] = []
-    for cand in top:
-        tok = cand.get("token", "")
-        logprob = float(cand.get("logprob"))
-        topk.append((tok, logprob))
-    if chosen_tok is None or not topk:
-        return None
-    return str(chosen_tok), topk
+        return []
+
+    outs: List[Tuple[str, List[TokenProb]]] = []
+    for item in lp:
+        chosen_tok = item.get("token")
+        top = item.get("top_logprobs") or []
+        topk: List[TokenProb] = []
+        for cand in top:
+            tok = cand.get("token", "")
+            logprob = float(cand.get("logprob"))
+            topk.append((tok, logprob))
+        if chosen_tok is None or not topk:
+            continue
+        outs.append((str(chosen_tok), topk))
+    return outs
 
 
-def extract_top_candidates_from_completion_event(evt: Dict) -> Optional[Tuple[str, List[TokenProb]]]:
-    """Extract chosen token and top candidates from /completion streaming chunk."""
+def extract_top_candidates_from_completion_event(evt: Dict) -> List[Tuple[str, List[TokenProb]]]:
+    """Extract chosen token and top candidates from /completion streaming chunk.
+
+    In practice, /completion chunks usually contain a single new token, so we return a list with
+    at most one item.
+    """
     probs = evt.get("completion_probabilities")
     if not probs:
-        return None
+        return []
     last = probs[-1]
     chosen_tok = last.get("token") or ""
     top = last.get("top_logprobs")
@@ -139,8 +150,8 @@ def extract_top_candidates_from_completion_event(evt: Dict) -> Optional[Tuple[st
             logprob = float(cand.get("logprob"))
         topk.append((tok, logprob))
     if not chosen_tok or not topk:
-        return None
-    return str(chosen_tok), topk
+        return []
+    return [(str(chosen_tok), topk)]
 
 
 def entropy_lower_bound_from_topk(topk: List[TokenProb]) -> Tuple[float, float, float]:
@@ -228,23 +239,20 @@ def generate_with_entropy_lower_bound(
 
     idx = 0
     for evt in events:
-        ex = extractor(evt)
-        if ex is None:
-            continue
-        tok, topk = ex
-        h_nats_lb, h_bits_lb, mass_obs = entropy_lower_bound_from_topk(topk)
-        steps.append({
-            "index": idx,
-            "token_id": None,
-            "token": tok,
-            "entropy_nats": h_nats_lb,
-            "entropy_bits": h_bits_lb,
-            "mass_observed": mass_obs,
-            "kmax": cfg.kmax,
-            "note": "entropy is a LOWER BOUND when computed from top-k only",
-        })
-        text_out.append(tok)
-        idx += 1
+        for tok, topk in extractor(evt):
+            h_nats_lb, h_bits_lb, mass_obs = entropy_lower_bound_from_topk(topk)
+            steps.append({
+                "index": idx,
+                "token_id": None,
+                "token": tok,
+                "entropy_nats": h_nats_lb,
+                "entropy_bits": h_bits_lb,
+                "mass_observed": mass_obs,
+                "kmax": cfg.kmax,
+                "note": "entropy is a LOWER BOUND when computed from top-k only",
+            })
+            text_out.append(tok)
+            idx += 1
 
     dt = time.time() - t0
 

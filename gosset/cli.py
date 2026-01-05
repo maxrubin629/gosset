@@ -7,9 +7,10 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .backends.transformers_backend import DecodeConfig, generate_with_entropy
-from .backends.llamacpp_backend import LlamaCppConfig, generate_with_entropy_lower_bound
-from .analyze import load_log, token_stats, summarize_range
+
+# NOTE: Backends are imported lazily inside subcommands so that lightweight
+# operations like `gosset analyze` don't require installing heavy deps
+# (torch/transformers) or requests.
 
 
 def _read_prompt(args: argparse.Namespace) -> str:
@@ -24,6 +25,15 @@ def _read_prompt(args: argparse.Namespace) -> str:
 
 
 def cmd_generate(args: argparse.Namespace) -> None:
+    try:
+        from .backends.transformers_backend import DecodeConfig, generate_with_entropy
+    except ModuleNotFoundError as e:  # pragma: no cover
+        raise SystemExit(
+            "Missing dependencies for the Transformers backend. Install requirements.txt (torch, transformers, accelerate) "
+            "or use the llama.cpp server backend (generate-llamacpp).\n\n"
+            f"Original error: {e}"
+        )
+
     prompt = _read_prompt(args)
 
     out_path = Path(args.out) if args.out else Path("logs") / f"run_{time.strftime('%Y%m%d_%H%M%S')}.json"
@@ -56,6 +66,14 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
 
 def cmd_generate_llamacpp(args: argparse.Namespace) -> None:
+    try:
+        from .backends.llamacpp_backend import LlamaCppConfig, generate_with_entropy_lower_bound
+    except ModuleNotFoundError as e:  # pragma: no cover
+        raise SystemExit(
+            "Missing dependency for llama.cpp server mode. Install requirements.txt (requests).\n\n"
+            f"Original error: {e}"
+        )
+
     prompt = _read_prompt(args)
     out_path = Path(args.out) if args.out else Path("logs") / f"run_llamacpp_{time.strftime('%Y%m%d_%H%M%S')}.json"
 
@@ -80,6 +98,8 @@ def cmd_generate_llamacpp(args: argparse.Namespace) -> None:
 
 
 def cmd_analyze(args: argparse.Namespace) -> None:
+    from .analyze import load_log, token_stats, summarize_range
+
     path = Path(args.log)
     log = load_log(path)
 

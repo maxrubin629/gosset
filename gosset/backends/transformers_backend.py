@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 import json
 from dataclasses import dataclass, asdict
@@ -55,9 +56,18 @@ def load_model(
         kwargs["torch_dtype"] = dtype_map.get(dtype, torch.float16)
 
     if device == "auto":
+        # `device_map="auto"` requires accelerate (transformers treats it as an optional dep).
+        try:  # pragma: no cover
+            import accelerate  # noqa: F401
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError(
+                "device='auto' requires the 'accelerate' package. Install it (pip install accelerate) "
+                "or pass --device cpu|cuda|mps.\n\n"
+                f"Original error: {e}"
+            )
         kwargs["device_map"] = "auto"
-    else:
-        kwargs["device_map"] = None
+        # Helps memory usage for large models.
+        kwargs.setdefault("low_cpu_mem_usage", True)
 
     model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
     model.eval()
@@ -82,7 +92,8 @@ def build_prompt_input_ids(
     *,
     system: Optional[str] = None,
     chat: bool = False,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, bool]:
+    used_chat_template = False
     if chat and hasattr(tokenizer, "apply_chat_template"):
         messages = []
         if system:
@@ -90,9 +101,10 @@ def build_prompt_input_ids(
         messages.append({"role": "user", "content": prompt})
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         enc = tokenizer(text, return_tensors="pt", add_special_tokens=False)
+        used_chat_template = True
     else:
         enc = tokenizer(prompt, return_tensors="pt")
-    return enc["input_ids"]
+    return enc["input_ids"], used_chat_template
 
 
 def generate_with_entropy(
@@ -120,11 +132,12 @@ def generate_with_entropy(
 
     inference_device = _infer_inference_device(model)
 
-    # torch.Generator must match device for CUDA; for other backends we fall back to CPU generator.
-    gen = torch.Generator(device=inference_device) if inference_device.type == "cuda" else torch.Generator()
-    gen.manual_seed(decode.seed)
+    # Prefer global seeding for portability (MPS, CPU, etc.). For CUDA we also pass an explicit generator
+    # matching the logits device (see below).
+    torch.manual_seed(int(decode.seed))
 
-    input_ids = build_prompt_input_ids(tokenizer, prompt, system=system, chat=chat).to(inference_device)
+    input_ids, used_chat_template = build_prompt_input_ids(tokenizer, prompt, system=system, chat=chat)
+    input_ids = input_ids.to(inference_device)
 
     generated_ids: List[int] = []
     steps: List[TokenStep] = []
@@ -135,14 +148,49 @@ def generate_with_entropy(
         past = out.past_key_values
         next_logits = out.logits[:, -1, :].squeeze(0)  # [V]
 
+    # Create a generator that matches the device where sampling occurs (CUDA requires this).
+    # For non-CUDA backends, passing a generator can be unsupported; seeding above is usually enough.
+    gen: Optional[torch.Generator] = None
+    gen_device: Optional[torch.device] = None
+    if next_logits.device.type == "cuda":
+        gen = torch.Generator(device=next_logits.device)
+        gen.manual_seed(int(decode.seed))
+        gen_device = next_logits.device
+    elif next_logits.device.type == "cpu":
+        gen = torch.Generator()
+        gen.manual_seed(int(decode.seed))
+        gen_device = next_logits.device
+
     eos_id = tokenizer.eos_token_id
     if eos_id is None:
         eos_id = getattr(model.config, "eos_token_id", None)
 
+    # Some configs expose multiple EOS ids.
+    eos_ids: Optional[set[int]]
+    if eos_id is None:
+        eos_ids = None
+    elif isinstance(eos_id, (list, tuple, set)):
+        eos_ids = {int(x) for x in eos_id}
+    else:
+        eos_ids = {int(eos_id)}
+
     t0 = time.time()
     for i in range(decode.max_new_tokens):
+        # If the backend/device_map changes where logits live, refresh the generator.
+        if next_logits.device.type in ("cuda", "cpu") and gen_device != next_logits.device:
+            if next_logits.device.type == "cuda":
+                gen = torch.Generator(device=next_logits.device)
+                gen.manual_seed(int(decode.seed))
+            else:
+                gen = torch.Generator()
+                gen.manual_seed(int(decode.seed))
+            gen_device = next_logits.device
+        elif next_logits.device.type not in ("cuda", "cpu"):
+            gen = None
+            gen_device = None
+
         ent_nats = float(shannon_entropy_from_logits(next_logits, base="e").item())
-        ent_bits = float(shannon_entropy_from_logits(next_logits, base="2").item())
+        ent_bits = ent_nats / math.log(2.0)
 
         token_id, _ = sample_next_token(
             next_logits,
@@ -159,7 +207,7 @@ def generate_with_entropy(
         steps.append(TokenStep(index=i, token_id=token_id, token=token_text, entropy_nats=ent_nats, entropy_bits=ent_bits))
         generated_ids.append(token_id)
 
-        if eos_id is not None and token_id == eos_id:
+        if eos_ids is not None and token_id in eos_ids:
             break
 
         with torch.no_grad():
@@ -178,7 +226,8 @@ def generate_with_entropy(
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "prompt": prompt,
         "system": system,
-        "chat_template_used": bool(chat),
+        "chat_template_used": bool(used_chat_template),
+        "chat_template_requested": bool(chat),
         "decode": asdict(decode),
         "timing": {"seconds": dt, "tokens_per_second": (len(steps) / dt) if dt > 0 else None},
         "steps": [asdict(s) for s in steps],

@@ -23,6 +23,10 @@ Python 3.10+ recommended.
 pip install -r requirements.txt
 ```
 
+Notes:
+* `gosset generate` uses the Transformers backend and requires torch + transformers (and `accelerate` if you use `--device auto`).
+* `gosset analyze` and the `viewer/` UI can be used on existing JSON logs without installing the heavy ML stack.
+
 ## Generate a log
 
 ### Plain prompt
