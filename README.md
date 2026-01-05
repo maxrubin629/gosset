@@ -1,4 +1,4 @@
-# gpt-oss entropy kit
+# gpt-oss entropy tool (gosset)
 
 A small repo that:
 
