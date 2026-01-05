@@ -291,7 +291,6 @@ def generate_with_entropy_lower_bound(
                 "entropy_bits": h_bits_lb,
                 "mass_observed": mass_obs,
                 "kmax": cfg.kmax,
-                "note": "entropy is a LOWER BOUND when computed from top-k only",
             })
             text_out.append(tok)
             if cfg.endpoint == "chat":
@@ -305,6 +304,7 @@ def generate_with_entropy_lower_bound(
         "backend": "llamacpp_topk_lower_bound",
         "model_id": cfg.model or None,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "note": "entropy is a LOWER BOUND when computed from top-k only",
         "prompt": prompt,
         "system": cfg.system,
         "decode": {
