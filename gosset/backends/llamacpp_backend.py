@@ -205,7 +205,7 @@ class LlamaCppConfig:
     endpoint: str = "chat"  # chat | completion
     kmax: int = 512
     timeout: float = 600.0
-    max_tokens: int = 1024
+    max_tokens: int = 16384
     temperature: float = 1.0
     top_p: float = 1.0
     top_k: int = 0

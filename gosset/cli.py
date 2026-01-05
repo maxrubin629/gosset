@@ -150,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--system", help="Optional system prompt (chat endpoint only).")
     l.add_argument("--out", help="Output JSON path.")
     l.add_argument("--kmax", type=int, default=512, help="Top-k candidates requested from server (n_probs/top_logprobs).")
-    l.add_argument("--max-tokens", type=int, default=2048)
+    l.add_argument("--max-tokens", type=int, default=16384)
     l.add_argument("--timeout", type=float, default=600.0)
     l.set_defaults(func=cmd_generate_llamacpp)
 
