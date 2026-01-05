@@ -1,6 +1,7 @@
 const els = {
   file: document.getElementById('file'),
   tokenStream: document.getElementById('tokenStream'),
+  promptText: document.getElementById('promptText'),
   meta: document.getElementById('meta'),
   unit: document.getElementById('unit'),
   deadzone: document.getElementById('deadzone'),
@@ -8,32 +9,39 @@ const els = {
   gamma: document.getElementById('gamma'),
   gammaVal: document.getElementById('gammaVal'),
   minCount: document.getElementById('minCount'),
+  topN: document.getElementById('topN'),
   topTokensFull: document.getElementById('topTokensFull'),
   topTokensSelection: document.getElementById('topTokensSelection'),
   selectionStats: document.getElementById('selectionStats'),
   clearSelection: document.getElementById('clearSelection'),
+  hoverShowTokenId: document.getElementById('hoverShowTokenId'),
+  hoverShowEntropy: document.getElementById('hoverShowEntropy'),
+  hoverShowMass: document.getElementById('hoverShowMass'),
+  hoverShowAlternatives: document.getElementById('hoverShowAlternatives'),
 };
 
 let logData = null;
 let steps = [];
 let selStart = null;
 let selEnd = null;
+let hoverTooltip = null;
 
 function isFiniteNumber(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
 function escapeHtml(s) {
-  return s.replaceAll('&', '&amp;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')
-          .replaceAll('"', '&quot;')
-          .replaceAll("'", '&#039;');
+  const text = String(s ?? '');
+  return text.replaceAll('&', '&amp;')
+             .replaceAll('<', '&lt;')
+             .replaceAll('>', '&gt;')
+             .replaceAll('"', '&quot;')
+             .replaceAll("'", '&#039;');
 }
 
 function showTokenForTable(tok) {
   // Keep it one-line for the table.
-  let s = tok;
+  let s = String(tok ?? '');
   s = s.replaceAll('\n', '\\n');
   s = s.replaceAll('\t', '\\t');
   s = s.replaceAll('\r', '\\r');
@@ -105,16 +113,121 @@ function clearStream() {
   els.topTokensFull.innerHTML = '';
   els.topTokensSelection.innerHTML = '';
   els.meta.textContent = '';
+  if (els.promptText) els.promptText.textContent = '';
   els.selectionStats.textContent = 'Click two tokens to select a range.';
   selStart = null;
   selEnd = null;
   els.clearSelection.disabled = true;
 }
 
+function ensureHoverTooltip() {
+  if (hoverTooltip) return;
+  hoverTooltip = document.createElement('div');
+  hoverTooltip.className = 'hover-tooltip';
+  hoverTooltip.style.display = 'none';
+  document.body.appendChild(hoverTooltip);
+}
+
+function positionTooltip(x, y) {
+  if (!hoverTooltip) return;
+  const pad = 12;
+  const rect = hoverTooltip.getBoundingClientRect();
+  let left = x + 14;
+  let top = y + 14;
+  if (left + rect.width > window.innerWidth - pad) {
+    left = x - rect.width - 14;
+  }
+  if (top + rect.height > window.innerHeight - pad) {
+    top = y - rect.height - 14;
+  }
+  hoverTooltip.style.left = `${Math.max(pad, left)}px`;
+  hoverTooltip.style.top = `${Math.max(pad, top)}px`;
+}
+
+function showTooltip(text, x, y) {
+  if (!text) return;
+  ensureHoverTooltip();
+  hoverTooltip.textContent = text;
+  hoverTooltip.style.display = 'block';
+  positionTooltip(x, y);
+}
+
+function hideTooltip() {
+  if (!hoverTooltip) return;
+  hoverTooltip.style.display = 'none';
+}
+
+window.addEventListener('blur', hideTooltip);
+window.addEventListener('scroll', hideTooltip, true);
+
+function getTopN() {
+  const v = parseInt((els.topN && els.topN.value) || '100', 10);
+  if (!Number.isFinite(v) || v <= 0) return 100;
+  return v;
+}
+
+function formatProb(p) {
+  if (!isFiniteNumber(p)) return 'NA';
+  return (p * 100).toFixed(2) + '%';
+}
+
+function safeExp(logp) {
+  const lp = Number(logp);
+  if (!Number.isFinite(lp)) return NaN;
+  // exp(-inf) is 0; exp(1000) would overflow, but logprobs should be <= 0.
+  if (lp < -1000) return 0;
+  return Math.exp(lp);
+}
+
+function topAlternativesText(step, maxAlts = 5) {
+  if (!step || !Array.isArray(step.top_logprobs) || step.top_logprobs.length < 2) return '';
+  const alts = step.top_logprobs.slice(1, 1 + maxAlts);
+  if (!alts.length) return '';
+  const lines = [];
+  lines.push('top alternatives:');
+  for (const c of alts) {
+    const tok = (c && typeof c.token === 'string') ? c.token : '';
+    const p = safeExp(c && c.logprob);
+    lines.push(`  ${showTokenForTable(tok)}  (${formatProb(p)})`);
+  }
+  return lines.join('\n');
+}
+
+function buildTokenHoverTitle(step, pos, highlighted) {
+  const t = (step.index != null) ? step.index : pos;
+  const parts = [];
+  parts.push(`t=${t}`);
+
+  // Always include a stable representation for whitespace tokens.
+  parts.push(`token=${showTokenForTable(step.token || '')}`);
+
+  if (highlighted) {
+    if (els.hoverShowTokenId && els.hoverShowTokenId.checked) {
+      parts.push(`token_id=${step.token_id}`);
+    }
+    if (els.hoverShowEntropy && els.hoverShowEntropy.checked) {
+      const v = entropyValue(step);
+      const h = isFiniteNumber(v) ? v.toFixed(3) : 'NA';
+      parts.push(`H=${h} ${els.unit.value}`);
+    }
+    if (els.hoverShowMass && els.hoverShowMass.checked && step.mass_observed != null) {
+      parts.push(`mass=${Number(step.mass_observed).toFixed(3)}`);
+    }
+    if (els.hoverShowAlternatives && els.hoverShowAlternatives.checked) {
+      const altText = topAlternativesText(step, 5);
+      if (altText) parts.push(altText);
+    }
+  }
+
+  if (step.note) parts.push(String(step.note));
+  return parts.join('\n');
+}
+
 function renderMeta() {
   const m = [];
   m.push(`model: ${logData.model_id || 'unknown'}`);
   if (logData.backend) m.push(`backend: ${logData.backend}`);
+  if (logData.kmax != null) m.push(`kmax: ${logData.kmax}`);
   if (logData.created_at) m.push(`created_at: ${logData.created_at}`);
   if (logData.decode) {
     const d = logData.decode;
@@ -131,8 +244,9 @@ function renderTable(container, rows) {
   let html = '';
   html += `<div class="row hdr"><div>token</div><div>count</div><div>mean</div></div>`;
   for (const r of rows) {
+    const title = r.hover || r.token;
     html += `<div class="row">
-      <div class="cell-token" title="${escapeHtml(r.token)}">${escapeHtml(showTokenForTable(r.token))}</div>
+      <div class="cell-token" title="${escapeHtml(title)}">${escapeHtml(showTokenForTable(r.token))}</div>
       <div>${r.count}</div>
       <div>${r.mean.toFixed(3)}</div>
     </div>`;
@@ -143,21 +257,37 @@ function renderTable(container, rows) {
 function topTokens(stepsSlice, minCount, topN=30) {
   const map = new Map();
   for (const s of stepsSlice) {
+    if (s.is_prompt) continue;
     const tok = s.token;
     const v = entropyValue(s);
     if (!isFiniteNumber(v)) continue;
     let agg = map.get(tok);
     if (!agg) {
-      agg = { token: tok, count: 0, sum: 0 };
+      agg = { token: tok, count: 0, sum: 0, max: -Infinity, example: s };
       map.set(tok, agg);
     }
     agg.count += 1;
     agg.sum += v;
+    if (v > agg.max) {
+      agg.max = v;
+      agg.example = s;
+    }
   }
   const arr = [];
   for (const agg of map.values()) {
     if (agg.count < minCount) continue;
-    arr.push({ token: agg.token, count: agg.count, mean: agg.sum / agg.count });
+    const mean = agg.sum / agg.count;
+    const hover = (() => {
+      const ex = agg.example;
+      if (!ex || !Array.isArray(ex.top_logprobs) || ex.top_logprobs.length < 2) return agg.token;
+      const t = (ex.index != null) ? ex.index : '?';
+      const lines = [];
+      lines.push(`example t=${t}`);
+      const altText = topAlternativesText(ex, 5);
+      if (altText) lines.push(altText);
+      return lines.join('\n');
+    })();
+    arr.push({ token: agg.token, count: agg.count, mean, hover });
   }
   arr.sort((a,b)=>b.mean-a.mean);
   return arr.slice(0, topN);
@@ -192,7 +322,7 @@ function renderSelectionStats() {
     `range: [${Math.min(selStart, selEnd)}..${Math.max(selStart, selEnd)}] • tokens: ${slice.length} • entropy samples: ${vals.length} • mean: ${mean.toFixed(3)} ${unit} • p50: ${p50.toFixed(3)} • p90: ${p90.toFixed(3)}`;
 
   const minCount = parseInt(els.minCount.value || '5', 10);
-  const top = topTokens(slice, minCount, 30);
+  const top = topTokens(slice, minCount, getTopN());
   renderTable(els.topTokensSelection, top);
 }
 
@@ -217,6 +347,7 @@ function updateSelectionClasses() {
 function renderStream() {
   els.tokenStream.innerHTML = '';
   if (!steps.length) return;
+  ensureHoverTooltip();
 
   const vals = steps.map(entropyValue).filter(isFiniteNumber);
   const params = computeColorMapParams(vals);
@@ -229,12 +360,11 @@ function renderStream() {
     span.dataset.pos = String(pos);
     span.textContent = s.token;
     const v = entropyValue(s);
-    span.style.background = colorFor(v, params);
-    const h = isFiniteNumber(v) ? v.toFixed(3) : 'NA';
-    const t = (s.index != null) ? s.index : pos;
-    const mass = (s.mass_observed != null) ? ` • mass=${Number(s.mass_observed).toFixed(3)}` : '';
-    const note = s.note ? ` • ${String(s.note)}` : '';
-    span.title = `t=${t} • id=${s.token_id} • H=${h} ${els.unit.value}${mass}${note}`;
+    const bg = colorFor(v, params);
+    span.style.background = bg;
+    const highlighted = bg !== 'transparent';
+    const hoverText = buildTokenHoverTitle(s, pos, highlighted);
+    span.title = hoverText;
 
     span.addEventListener('click', () => {
       const idx = parseInt(span.dataset.pos, 10);
@@ -248,6 +378,16 @@ function renderStream() {
       renderSelectionStats();
     });
 
+    span.addEventListener('pointerenter', (e) => {
+      showTooltip(hoverText, e.clientX, e.clientY);
+    });
+    span.addEventListener('pointermove', (e) => {
+      positionTooltip(e.clientX, e.clientY);
+    });
+    span.addEventListener('pointerleave', () => {
+      hideTooltip();
+    });
+
     frag.appendChild(span);
   }
   els.tokenStream.appendChild(frag);
@@ -257,7 +397,7 @@ function renderStream() {
 function renderFullTopTokens() {
   if (!steps.length) return;
   const minCount = parseInt(els.minCount.value || '5', 10);
-  const top = topTokens(steps, minCount, 100);
+  const top = topTokens(steps, minCount, getTopN());
   renderTable(els.topTokensFull, top);
 }
 
@@ -277,6 +417,9 @@ els.file.addEventListener('change', async (e) => {
 
   const text = await file.text();
   logData = JSON.parse(text);
+  if (els.promptText) {
+    els.promptText.textContent = (logData && logData.prompt) ? String(logData.prompt) : '';
+  }
   steps = (logData.steps || []).map(s => ({
     index: s.index,
     token_id: s.token_id,
@@ -285,6 +428,8 @@ els.file.addEventListener('change', async (e) => {
     entropy_nats: s.entropy_nats,
     mass_observed: s.mass_observed,
     note: s.note,
+    is_prompt: Boolean(s.is_prompt),
+    top_logprobs: s.top_logprobs,
   }));
   // Ensure order is stable even if a log writes steps out of order.
   steps.sort((a, b) => {
@@ -302,6 +447,15 @@ els.unit.addEventListener('change', rerenderAll);
 els.deadzone.addEventListener('input', () => { els.deadzoneVal.textContent = parseFloat(els.deadzone.value).toFixed(2); rerenderAll(); });
 els.gamma.addEventListener('input', () => { els.gammaVal.textContent = parseFloat(els.gamma.value).toFixed(2); rerenderAll(); });
 els.minCount.addEventListener('input', () => { renderFullTopTokens(); renderSelectionStats(); });
+if (els.topN) {
+  els.topN.addEventListener('input', () => { renderFullTopTokens(); renderSelectionStats(); });
+}
+
+// Hover tooltip options only affect the token stream.
+for (const el of [els.hoverShowTokenId, els.hoverShowEntropy, els.hoverShowMass, els.hoverShowAlternatives]) {
+  if (!el) continue;
+  el.addEventListener('change', () => { renderStream(); });
+}
 
 els.clearSelection.addEventListener('click', () => {
   selStart = null;

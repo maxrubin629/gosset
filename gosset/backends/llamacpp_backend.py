@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 import requests
 
 
-TokenProb = Tuple[str, float]  # (token, logprob)
+TokenProb = Tuple[str, Optional[int], float]  # (token, token_id, logprob)
 
 
 def sse_events(resp: requests.Response) -> Iterator[Dict]:
@@ -56,6 +57,10 @@ def request_chat(
     kmax: int,
     temperature: float,
     top_p: float,
+    top_k: int,
+    min_p: float,
+    repeat_penalty: float,
+    seed: int,
     max_tokens: int,
     timeout: float,
     stream: bool,
@@ -71,6 +76,11 @@ def request_chat(
         "max_tokens": int(max_tokens),
         "temperature": float(temperature),
         "top_p": float(top_p),
+        # llama.cpp server extensions supported by the OpenAI-compatible endpoint:
+        "top_k": int(top_k),
+        "min_p": float(min_p),
+        "repeat_penalty": float(repeat_penalty),
+        "seed": int(seed),
     }
     r = requests.post(url, json=body, stream=stream, timeout=timeout)
     r.raise_for_status()
@@ -87,7 +97,9 @@ def request_completion(
     temperature: float,
     top_p: float,
     top_k: int,
+    min_p: float,
     repeat_penalty: float,
+    seed: int,
     max_tokens: int,
     timeout: float,
     stream: bool,
@@ -103,7 +115,9 @@ def request_completion(
         "temperature": float(temperature),
         "top_p": float(top_p),
         "top_k": int(top_k),
+        "min_p": float(min_p),
         "repeat_penalty": float(repeat_penalty),
+        "seed": int(seed),
         "post_sampling_probs": bool(post_sampling_probs),
     }
     r = requests.post(url, json=body, stream=stream, timeout=timeout)
@@ -114,7 +128,16 @@ def request_completion(
         yield r.json()
 
 
-def extract_top_candidates_from_chat_event(evt: Dict) -> List[Tuple[str, List[TokenProb]]]:
+def _maybe_int(v: Any) -> Optional[int]:
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except Exception:
+        return None
+
+
+def extract_top_candidates_from_chat_event(evt: Dict) -> List[Tuple[str, Optional[int], float, List[TokenProb]]]:
     """Extract chosen token(s) and their top candidates from a chat-completions streaming chunk.
 
     llama.cpp's OpenAI-compatible streaming can return multiple token logprob entries per chunk.
@@ -128,22 +151,29 @@ def extract_top_candidates_from_chat_event(evt: Dict) -> List[Tuple[str, List[To
     if not lp:
         return []
 
-    outs: List[Tuple[str, List[TokenProb]]] = []
+    outs: List[Tuple[str, Optional[int], float, List[TokenProb]]] = []
     for item in lp:
         chosen_tok = item.get("token")
+        if chosen_tok is None:
+            continue
+        chosen_id = _maybe_int(item.get("token_id", item.get("id")))
+        chosen_logprob = item.get("logprob")
+        if chosen_logprob is None:
+            continue
         top = item.get("top_logprobs") or []
         topk: List[TokenProb] = []
         for cand in top:
-            tok = cand.get("token", "")
-            logprob = float(cand.get("logprob"))
-            topk.append((tok, logprob))
-        if chosen_tok is None or not topk:
-            continue
-        outs.append((str(chosen_tok), topk))
+            tok = str(cand.get("token", ""))
+            tok_id = _maybe_int(cand.get("token_id", cand.get("id")))
+            logprob = cand.get("logprob")
+            if logprob is None:
+                continue
+            topk.append((tok, tok_id, float(logprob)))
+        outs.append((str(chosen_tok), chosen_id, float(chosen_logprob), topk))
     return outs
 
 
-def extract_top_candidates_from_completion_event(evt: Dict) -> List[Tuple[str, List[TokenProb]]]:
+def extract_top_candidates_from_completion_event(evt: Dict) -> List[Tuple[str, Optional[int], float, List[TokenProb]]]:
     """Extract chosen token and top candidates from /completion streaming chunk.
 
     In practice, /completion chunks usually contain a single new token, so we return a list with
@@ -154,6 +184,10 @@ def extract_top_candidates_from_completion_event(evt: Dict) -> List[Tuple[str, L
         return []
     last = probs[-1]
     chosen_tok = last.get("token") or ""
+    chosen_id = _maybe_int(last.get("token_id", last.get("id")))
+    chosen_logprob = last.get("logprob")
+    if chosen_logprob is None:
+        return []
     top = last.get("top_logprobs")
     post_mode = False
     if top is None:
@@ -162,15 +196,47 @@ def extract_top_candidates_from_completion_event(evt: Dict) -> List[Tuple[str, L
     topk: List[TokenProb] = []
     for cand in top:
         tok = cand.get("token", "")
+        tok_id = _maybe_int(cand.get("token_id", cand.get("id")))
         if post_mode:
             p = float(cand.get("prob"))
             logprob = math.log(max(p, 1e-45))
         else:
-            logprob = float(cand.get("logprob"))
-        topk.append((tok, logprob))
+            logprob = cand.get("logprob")
+            if logprob is None:
+                continue
+            logprob = float(logprob)
+        topk.append((str(tok), tok_id, logprob))
     if not chosen_tok or not topk:
         return []
-    return [(str(chosen_tok), topk)]
+    return [(str(chosen_tok), chosen_id, float(chosen_logprob), topk)]
+
+
+def _dedupe_topk(cands: List[TokenProb]) -> List[TokenProb]:
+    """Deduplicate a token candidate list.
+
+    Prefers token_id (when present) as the key; otherwise falls back to token string.
+    Keeps the maximum logprob for a given key.
+    """
+    by_id: Dict[int, TokenProb] = {}
+    by_tok: Dict[str, TokenProb] = {}
+    for tok, tok_id, lp in cands:
+        if tok_id is not None:
+            prev = by_id.get(tok_id)
+            if prev is None or lp > prev[2]:
+                by_id[tok_id] = (tok, tok_id, lp)
+        else:
+            prev = by_tok.get(tok)
+            if prev is None or lp > prev[2]:
+                by_tok[tok] = (tok, tok_id, lp)
+    # Merge, preferring IDs.
+    out: List[TokenProb] = list(by_id.values())
+    # Only add token-string candidates that don't duplicate an ID entry.
+    id_tokens = {t for t, _, _ in out}
+    for tok, tok_id, lp in by_tok.values():
+        if tok not in id_tokens:
+            out.append((tok, tok_id, lp))
+    out.sort(key=lambda x: x[2], reverse=True)
+    return out
 
 
 def entropy_lower_bound_from_topk(topk: List[TokenProb]) -> Tuple[float, float, float]:
@@ -184,7 +250,7 @@ def entropy_lower_bound_from_topk(topk: List[TokenProb]) -> Tuple[float, float, 
 
     Returns: (H_nats_lb, H_bits_lb, mass_observed)
     """
-    ps = [math.exp(lp) for _, lp in topk]
+    ps = [math.exp(lp) for _, _, lp in topk]
     m = sum(ps)
     p_tail = max(0.0, 1.0 - m)
 
@@ -212,6 +278,7 @@ class LlamaCppConfig:
     repeat_penalty: float = 1.0
     stream: bool = True
     system: Optional[str] = None
+    seed: Optional[int] = None
 
 
 def generate_with_entropy_lower_bound(
@@ -224,6 +291,8 @@ def generate_with_entropy_lower_bound(
     steps: List[Dict[str, Any]] = []
     text_out = []
 
+    seed = int(cfg.seed) if cfg.seed is not None else random.randrange(2**31 - 1)
+
     t0 = time.time()
 
     if cfg.endpoint == "chat":
@@ -235,6 +304,10 @@ def generate_with_entropy_lower_bound(
             kmax=cfg.kmax,
             temperature=cfg.temperature,
             top_p=cfg.top_p,
+            top_k=cfg.top_k,
+            min_p=0.0,
+            repeat_penalty=cfg.repeat_penalty,
+            seed=seed,
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             stream=cfg.stream,
@@ -248,7 +321,9 @@ def generate_with_entropy_lower_bound(
             temperature=cfg.temperature,
             top_p=cfg.top_p,
             top_k=cfg.top_k,
+            min_p=0.0,
             repeat_penalty=cfg.repeat_penalty,
+            seed=seed,
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
             stream=cfg.stream,
@@ -281,16 +356,32 @@ def generate_with_entropy_lower_bound(
                 if is_prefix:
                     extracted = extracted[len(seen_chat_tokens):]
 
-        for tok, topk in extracted:
-            h_nats_lb, h_bits_lb, mass_obs = entropy_lower_bound_from_topk(topk)
+        for tok, tok_id, tok_logprob, topk in extracted:
+            # For best entropy lower-bound quality, ensure the chosen token is included
+            # even if it doesn't appear in the returned top-k list.
+            full = [(tok, tok_id, float(tok_logprob))] + list(topk)
+            full = _dedupe_topk(full)
+            h_nats_lb, h_bits_lb, mass_obs = entropy_lower_bound_from_topk(full)
+
+            # For UI, keep: [chosen] + top 5 alternatives.
+            alts: List[TokenProb] = [
+                c for c in full
+                if not (c[1] is not None and tok_id is not None and c[1] == tok_id) and c[0] != tok
+            ]
+            top_for_ui: List[TokenProb] = [(tok, tok_id, float(tok_logprob))] + alts[:5]
+
             steps.append({
                 "index": idx,
-                "token_id": None,
+                "token_id": tok_id,
                 "token": tok,
                 "entropy_nats": h_nats_lb,
                 "entropy_bits": h_bits_lb,
                 "mass_observed": mass_obs,
-                "kmax": cfg.kmax,
+                "is_prompt": False,
+                "top_logprobs": [
+                    {"token": t, "token_id": tid, "logprob": lp}
+                    for (t, tid, lp) in top_for_ui
+                ],
             })
             text_out.append(tok)
             if cfg.endpoint == "chat":
@@ -303,6 +394,7 @@ def generate_with_entropy_lower_bound(
         "schema_version": 1,
         "backend": "llamacpp_topk_lower_bound",
         "model_id": cfg.model or None,
+        "kmax": cfg.kmax,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "note": "entropy is a LOWER BOUND when computed from top-k only",
         "prompt": prompt,
@@ -314,7 +406,7 @@ def generate_with_entropy_lower_bound(
             "min_p": 0.0,
             "repetition_penalty": cfg.repeat_penalty,
             "max_new_tokens": cfg.max_tokens,
-            "seed": None,
+            "seed": seed,
         },
         "timing": {"seconds": dt, "tokens_per_second": (len(steps) / dt) if dt > 0 else None},
         "steps": steps,
