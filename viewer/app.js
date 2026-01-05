@@ -257,7 +257,7 @@ function renderStream() {
 function renderFullTopTokens() {
   if (!steps.length) return;
   const minCount = parseInt(els.minCount.value || '5', 10);
-  const top = topTokens(steps, minCount, 40);
+  const top = topTokens(steps, minCount, 100);
   renderTable(els.topTokensFull, top);
 }
 
