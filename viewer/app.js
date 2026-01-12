@@ -245,8 +245,12 @@ function renderTable(container, rows) {
   html += `<div class="row hdr"><div>token</div><div>count</div><div>mean</div></div>`;
   for (const r of rows) {
     const title = r.hover || r.token;
+    const tokenId = (r.token_id != null) ? String(r.token_id) : '-';
     html += `<div class="row">
-      <div class="cell-token" title="${escapeHtml(title)}">${escapeHtml(showTokenForTable(r.token))}</div>
+      <div class="cell-token" title="${escapeHtml(title)}">
+        <div class="cell-token-id">${escapeHtml(tokenId)}</div>
+        <div class="cell-token-text">${escapeHtml(showTokenForTable(r.token))}</div>
+      </div>
       <div>${r.count}</div>
       <div>${r.mean.toFixed(3)}</div>
     </div>`;
@@ -287,7 +291,8 @@ function topTokens(stepsSlice, minCount, topN=30) {
       if (altText) lines.push(altText);
       return lines.join('\n');
     })();
-    arr.push({ token: agg.token, count: agg.count, mean, hover });
+    const tokenId = (agg.example && agg.example.token_id != null) ? agg.example.token_id : null;
+    arr.push({ token: agg.token, token_id: tokenId, count: agg.count, mean, hover });
   }
   arr.sort((a,b)=>b.mean-a.mean);
   return arr.slice(0, topN);
@@ -364,7 +369,7 @@ function renderStream() {
     span.style.background = bg;
     const highlighted = bg !== 'transparent';
     const hoverText = buildTokenHoverTitle(s, pos, highlighted);
-    span.title = hoverText;
+    span.removeAttribute('title');
 
     span.addEventListener('click', () => {
       const idx = parseInt(span.dataset.pos, 10);

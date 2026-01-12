@@ -243,6 +243,18 @@ main {
   white-space: nowrap;
 }
 
+.cell-token-id {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.1;
+}
+
+.cell-token-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pill {
   font-size: 11px;
   color: var(--muted);
