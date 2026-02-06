@@ -6,80 +6,103 @@
   <title>gpt-oss entropy viewer</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
-  <header>
-    <div class="title">gpt-oss entropy viewer</div>
-    <div class="controls">
-      <input id="file" type="file" accept=".json,application/json" />
+<body class="state-empty">
+  <div class="skyglow" aria-hidden="true"></div>
+
+  <header class="masthead">
+    <div class="masthead-copy">
+      <p class="kicker">Entropy Observatory</p>
+      <h1 class="title">gpt-oss token entropy viewer</h1>
+      <p class="subtitle">Inspect per-token uncertainty, compare ranges, and trace high-entropy regions quickly.</p>
+    </div>
+
+    <div class="masthead-actions">
+      <label class="file-wrap" for="file">
+        <span>Load log JSON</span>
+        <input id="file" type="file" accept=".json,application/json" />
+      </label>
       <button id="clearSelection" disabled>Clear selection</button>
-      <label class="inline">
-        Unit
-        <select id="unit">
-          <option value="bits" selected>bits</option>
-          <option value="nats">nats</option>
-        </select>
-      </label>
-      <label class="inline">
-        Deadzone
-        <input id="deadzone" type="range" min="0" max="0.5" step="0.01" value="0.12" />
-        <span id="deadzoneVal">0.12</span>
-      </label>
-      <label class="inline">
-        Gamma
-        <input id="gamma" type="range" min="0.3" max="3.0" step="0.05" value="1.0" />
-        <span id="gammaVal">1.00</span>
-      </label>
-      <label class="inline">
-        Min count
-        <input id="minCount" type="number" min="1" step="1" value="5" />
-      </label>
-      <label class="inline">
-        Top N
-        <input id="topN" type="number" min="1" step="1" value="100" />
-      </label>
     </div>
   </header>
 
-  <main>
-    <section class="pane left">
-      <div class="stats">
-        <div class="stats-title">Prompt</div>
+  <main class="workspace">
+    <aside class="rail">
+      <section class="panel inspector-panel" aria-label="Prompt and metadata">
+        <h2 class="panel-title">Prompt</h2>
         <pre id="promptText" class="prompt mono"></pre>
-      </div>
 
-      <div class="meta" id="meta"></div>
+        <h2 class="panel-title top-gap">Run metadata</h2>
+        <div class="meta" id="meta"></div>
 
-      <div class="stats">
-        <div class="stats-title">Selection</div>
+        <h2 class="panel-title top-gap">Selection</h2>
         <div id="selectionStats" class="mono subtle">Click two tokens to select a range.</div>
-      </div>
+      </section>
 
-      <div class="stats">
-        <div class="stats-title">Top tokens by average entropy (selection)</div>
-        <div id="topTokensSelection" class="table"></div>
-      </div>
+      <section class="panel control-deck" aria-label="Controls">
+        <h2 class="panel-title">Controls</h2>
+        <div class="control-grid">
+          <label class="control inline">
+            <span>Unit</span>
+            <select id="unit">
+              <option value="bits" selected>bits</option>
+              <option value="nats">nats</option>
+            </select>
+          </label>
 
-      <div class="stats">
-        <div class="stats-title">Top tokens by average entropy (full run)</div>
-        <div id="topTokensFull" class="table"></div>
-      </div>
-    </section>
+          <label class="control inline span-2">
+            <span>Deadzone</span>
+            <input id="deadzone" type="range" min="0" max="0.5" step="0.01" value="0.12" />
+            <output id="deadzoneVal" for="deadzone">0.12</output>
+          </label>
 
-    <section class="pane right">
-      <details class="hover-menu" id="hoverMenu">
-        <summary>Hover info (highlighted tokens)</summary>
-        <div class="hover-menu-grid">
-          <label><input id="hoverShowTokenId" type="checkbox" checked /> token_id</label>
-          <label><input id="hoverShowEntropy" type="checkbox" checked /> entropy</label>
-          <label><input id="hoverShowMass" type="checkbox" checked /> mass observed</label>
-          <label><input id="hoverShowAlternatives" type="checkbox" /> top 5 alternatives</label>
+          <label class="control inline span-2">
+            <span>Gamma</span>
+            <input id="gamma" type="range" min="0.3" max="3.0" step="0.05" value="1.0" />
+            <output id="gammaVal" for="gamma">1.00</output>
+          </label>
+
+          <label class="control inline">
+            <span>Min count</span>
+            <input id="minCount" type="number" min="1" step="1" value="5" />
+          </label>
+
+          <label class="control inline">
+            <span>Top N</span>
+            <input id="topN" type="number" min="1" step="1" value="100" />
+          </label>
         </div>
-      </details>
-      <div class="hint">
-        Token highlighting: greener = lower entropy, redder = higher entropy, transparent = middle band.
-        Selection: first click sets start, second click sets end.
+      </section>
+
+      <section class="panel analysis-panel" aria-label="Top token tables">
+        <h2 class="panel-title">Top tokens in selection</h2>
+        <div id="topTokensSelection" class="table"></div>
+
+        <h2 class="panel-title top-gap">Top tokens in full run</h2>
+        <div id="topTokensFull" class="table"></div>
+      </section>
+    </aside>
+
+    <section class="panel stream-panel" aria-label="Token stream">
+      <div class="stream-topbar">
+        <details class="hover-menu" id="hoverMenu">
+          <summary>Hover info for highlighted tokens</summary>
+          <div class="hover-menu-grid">
+            <label><input id="hoverShowTokenId" type="checkbox" checked /> token_id</label>
+            <label><input id="hoverShowEntropy" type="checkbox" checked /> entropy</label>
+            <label><input id="hoverShowMass" type="checkbox" checked /> mass observed</label>
+            <label><input id="hoverShowAlternatives" type="checkbox" /> top 5 alternatives</label>
+          </div>
+        </details>
+
+        <p class="hint">
+          Green = lower entropy, red = higher entropy, transparent = middle band. First click sets start, second click sets end.
+        </p>
       </div>
-      <div id="tokenStream" class="token-stream"></div>
+
+      <div class="stream-frame">
+        <div id="streamEmpty" class="stream-empty" role="status">Load a JSON log to begin.</div>
+        <div id="tokenStream" class="token-stream" aria-live="polite"></div>
+      </div>
     </section>
   </main>
 

@@ -1,5 +1,6 @@
 const els = {
   file: document.getElementById('file'),
+  streamEmpty: document.getElementById('streamEmpty'),
   tokenStream: document.getElementById('tokenStream'),
   promptText: document.getElementById('promptText'),
   meta: document.getElementById('meta'),
@@ -25,6 +26,19 @@ let steps = [];
 let selStart = null;
 let selEnd = null;
 let hoverTooltip = null;
+
+function setStreamState(hasTokens, message) {
+  if (document.body) {
+    document.body.classList.toggle('state-loaded', Boolean(hasTokens));
+    document.body.classList.toggle('state-empty', !hasTokens);
+  }
+  if (els.streamEmpty) {
+    if (message) {
+      els.streamEmpty.textContent = message;
+    }
+    els.streamEmpty.hidden = Boolean(hasTokens);
+  }
+}
 
 function isFiniteNumber(v) {
   return typeof v === 'number' && Number.isFinite(v);
@@ -118,6 +132,7 @@ function clearStream() {
   selStart = null;
   selEnd = null;
   els.clearSelection.disabled = true;
+  setStreamState(false, 'Load a JSON log to begin.');
 }
 
 function ensureHoverTooltip() {
@@ -351,7 +366,11 @@ function updateSelectionClasses() {
 
 function renderStream() {
   els.tokenStream.innerHTML = '';
-  if (!steps.length) return;
+  if (!steps.length) {
+    const emptyMessage = logData ? 'This log has no token steps.' : 'Load a JSON log to begin.';
+    setStreamState(false, emptyMessage);
+    return;
+  }
   ensureHoverTooltip();
 
   const vals = steps.map(entropyValue).filter(isFiniteNumber);
@@ -396,6 +415,7 @@ function renderStream() {
     frag.appendChild(span);
   }
   els.tokenStream.appendChild(frag);
+  setStreamState(true);
   updateSelectionClasses();
 }
 
@@ -472,3 +492,4 @@ els.clearSelection.addEventListener('click', () => {
 // Defaults
 els.deadzoneVal.textContent = parseFloat(els.deadzone.value).toFixed(2);
 els.gammaVal.textContent = parseFloat(els.gamma.value).toFixed(2);
+setStreamState(false, 'Load a JSON log to begin.');
